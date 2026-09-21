@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Cocoa Town</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#0f0c29;color:#fff;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+#topbar{background:#161a22;padding:8px 14px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #00d2ff;flex-shrink:0}
+#topbar h1{font-size:16px;color:#00d2ff}
+#topbar .who{margin-left:auto;font-size:12px;color:#8a93a6}
+#topbar button{background:transparent;border:1px solid #2a303c;color:#a8b0c2;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px}
+#mapWrap{flex:1;position:relative;overflow:hidden;background:#1a1a2e}
+#map{position:absolute;top:0;left:0;will-change:transform}
+#map svg{display:block}
+#chat{position:fixed;bottom:80px;left:10px;right:10px;max-height:140px;overflow-y:auto;background:rgba(0,0,0,.6);border-radius:10px;padding:8px;font-size:12px;display:flex;flex-direction:column-reverse;pointer-events:auto}
+#chat .msg{margin-bottom:4px;word-break:break-word}
+#chat .msg b{color:#00d2ff}
+#chatInput{position:fixed;bottom:10px;left:10px;right:10px;display:flex;gap:6px}
+#chatInput input{flex:1;padding:12px;border-radius:10px;border:1px solid #00d2ff;background:#0f0c29;color:#fff;font-size:14px;outline:none}
+#chatInput button{padding:12px 18px;border-radius:10px;border:0;background:#00d2ff;color:#000;font-weight:bold;cursor:pointer}
+#playerBadge{position:fixed;top:60px;right:10px;background:rgba(0,0,0,.6);border-radius:10px;padding:8px 12px;font-size:12px;z-index:50}
+#loginScreen{position:fixed;inset:0;background:#0f0c29;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+#loginBox{background:#161a22;border:2px solid #00d2ff;border-radius:14px;padding:22px;width:100%;max-width:340px}
+#loginBox h2{text-align:center;color:#00d2ff;margin-bottom:14px}
+#loginBox input{width:100%;padding:11px;border-radius:8px;border:1px solid #333;background:#0f0c29;color:#fff;font-size:14px;margin-bottom:8px;outline:none}
+#loginBox button{width:100%;padding:12px;border:0;border-radius:8px;background:#00d2ff;color:#000;font-weight:bold;font-size:14px;cursor:pointer;margin-bottom:6px}
+#loginMsg{color:#f87171;font-size:12px;text-align:center;min-height:16px;margin-top:6px}
+#serverList{display:flex;flex-direction:column;gap:6px}
+.srv{display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #2a303c;border-radius:10px;cursor:pointer;background:#0f0c29;font-size:13px}
+.srv.on{border-color:#00d2ff;background:#1a2a3a}
+.srv .flag{font-size:20px}
+.srv .nm{flex:1}
+.srv .online{font-size:11px;color:#8a93a6}
+.srv .ping{font-size:11px;font-weight:bold;padding:2px 8px;border-radius:6px;background:#1a1a2a}
+.ping-good{color:#4ade80}
+.ping-mid{color:#fbbf24}
+.ping-bad{color:#f87171}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div id="loginBox">
+    <h2>🍫 Cocoa Town</h2>
+    <input id="nickInput" type="text" placeholder="Ник" maxlength="16">
+
+    <div style="font-size:12px;color:#8a93a6;margin-bottom:6px">Твой персонаж:</div>
+    <div style="display:flex;justify-content:center;margin-bottom:12px">
+      <div style="width:80px;height:80px;border:2px solid #00d2ff;border-radius:14px;background:#0a0c10;display:flex;align-items:center;justify-content:center">
+        <svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" style="width:60px;height:72px">
+          <path d="M20 100 L20 55 Q20 15 50 15 Q80 15 80 55 L80 100 L74 94 L68 100 L62 94 L56 100 L50 94 L44 100 L38 94 L32 100 L26 94 Z"
+                fill="#9a9a9a" stroke="#000" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M60 18 Q72 6 78 18 Q72 22 60 18 Z" fill="#6cff2a" stroke="#000" stroke-width="1.5"/>
+          <line x1="35" y1="55" x2="47" y2="58" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+          <line x1="53" y1="58" x2="65" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div style="font-size:12px;color:#8a93a6;margin-bottom:6px">Сервер:</div>
+    <div id="serverList" style="margin-bottom:10px"></div>
+
+    <button id="btnPlay">▶ Играть</button>
+    <div id="loginMsg"></div>
+  </div>
+</div>
+
+<div id="topbar">
+  <h1>🍫 Cocoa Town</h1>
+  <span class="who" id="whoInfo"></span>
+  <button id="btnOut">Выйти</button>
+</div>
+
+<div id="mapWrap"><div id="map"></div></div>
+
+<div id="playerBadge">👥 Онлайн: <b id="onlineCount">0</b></div>
+
+<div id="chat"></div>
+<div id="chatInput">
+  <input id="msgInput" placeholder="Написать..." maxlength="80">
+  <button id="btnSend">➤</button>
+</div><script>
+var firebaseConfig = {
+  apiKey: "AIzaSyC75-qpPIH25maaFrDoyyF1QNYZ7i4BOZ8",
+  authDomain: "cocoaserver-9477a.firebaseapp.com",
+  projectId: "cocoaserver-9477a",
+  storageBucket: "cocoaserver-9477a.firebasestorage.app",
+  messagingSenderId: "764432801147",
+  appId: "1:764432801147:web:9e7b4e2e721ee5c5f3f1de"
+};
+firebase.initializeApp(firebaseConfig);
+var db = firebase.firestore();
+
+var MAP_W = 2400;
+var MAP_H = 1800;
+var TILE = 40;
+
+var me = {
+  id: null,
+  nickname: "",
+  icon: "ghost",
+  x: MAP_W / 2,
+  y: MAP_H / 2
+};
+
+var players = {};
+
+/* ---- SVG призрака ---- */
+var GHOST_SVG = '<svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">' +
+  '<path d="M20 100 L20 55 Q20 15 50 15 Q80 15 80 55 L80 100 L74 94 L68 100 L62 94 L56 100 L50 94 L44 100 L38 94 L32 100 L26 94 Z" fill="#9a9a9a" stroke="#000" stroke-width="2" stroke-linejoin="round"/>' +
+  '<path d="M60 18 Q72 6 78 18 Q72 22 60 18 Z" fill="#6cff2a" stroke="#000" stroke-width="1.5"/>' +
+  '<line x1="35" y1="55" x2="47" y2="58" stroke="#000" stroke-width="2" stroke-linecap="round"/>' +
+  '<line x1="53" y1="58" x2="65" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>' +
+'</svg>';
+
+/* ---- Сервера ---- */
+var SERVERS = [
+  { id: "ru",  flag: "🇷🇺", name: "Москва" },
+  { id: "eu",  flag: "🇪🇺", name: "Европа" },
+  { id: "asia",flag: "🌏", name: "Азия"   },
+  { id: "us",  flag: "🇺🇸", name: "США"    }
+];
+var myServer = "ru";
+
+/* ---- Пинг ---- */
+function measurePing(){
+  var start = Date.now();
+  return db.collection("_ping").doc("p").get()
+    .then(function(){ return Date.now() - start; })
+    .catch(function(){ return Date.now() - start; });
+}
+
+/* ---- Онлайн ---- */
+function getOnlineCount(serverId){
+  var cutoff = new Date(Date.now() - 120000);
+  return db.collection("town_players")
+    .where("server", "==", serverId)
+    .where("lastSeen", ">", cutoff)
+    .limit(30)
+    .get()
+    .then(function(snap){ return snap.size; })
+    .catch(function(){ return 0; });
+}
+
+/* ---- Список серверов ---- */
+function renderServerList(){
+  var box = document.getElementById("serverList");
+  var h = "";
+  for (var i = 0; i < SERVERS.length; i++){
+    var s = SERVERS[i];
+    h += '<div class="srv' + (s.id === myServer ? " on" : "") + '" data-srv="' + s.id + '">' +
+      '<span class="flag">' + s.flag + '</span>' +
+      '<span class="nm">' + s.name + '</span>' +
+      '<span class="online" data-online="' + s.id + '">…</span>' +
+      '<span class="ping" data-ping="' + s.id + '">— ms</span>' +
+    '</div>';
+  }
+  box.innerHTML = h;
+
+  box.onclick = function(e){
+    var el = e.target.closest(".srv");
+    if (!el) return;
+    myServer = el.getAttribute("data-srv");
+    var all = box.querySelectorAll(".srv");
+    for (var j = 0; j < all.length; j++) all[j].classList.remove("on");
+    el.classList.add("on");
+    refreshServerInfo();
+  };
+
+  refreshServerInfo();
+  setInterval(refreshServerInfo, 10000);
+}
+
+function refreshServerInfo(){
+  for (var i = 0; i < SERVERS.length; i++){
+    (function(s){
+      getOnlineCount(s.id).then(function(n){
+        var el = document.querySelector('[data-online="' + s.id + '"]');
+        if (el) el.textContent = "👥 " + n;
+      });
+    })(SERVERS[i]);
+  }
+  measurePing().then(function(ms){
+    var el = document.querySelector('[data-ping="' + myServer + '"]');
+    if (!el) return;
+    el.textContent = ms + " ms";
+    el.className = "ping " + (ms < 150 ? "ping-good" : ms < 400 ? "ping-mid" : "ping-bad");
+  });
+}
+
+/* ---- Карта ---- */
+function buildMap(){
+  var svg = '<svg width="' + MAP_W + '" height="' + MAP_H + '" xmlns="http://www.w3.org/2000/svg">';
+  svg += '<rect width="100%" height="100%" fill="#3a5a2a"/>';
+  for (var x = 0; x < MAP_W; x += TILE){
+    for (var y = 0; y < MAP_H; y += TILE){
+      if ((x / TILE + y / TILE) % 2 === 0){
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + TILE + '" height="' + TILE + '" fill="#3f6130"/>';
+      }
+    }
+  }
+  svg += '<rect x="0" y="' + (MAP_H/2 - 60) + '" width="' + MAP_W + '" height="120" fill="#c2b280"/>';
+  svg += '<rect x="' + (MAP_W/2 - 60) + '" y="0" width="120" height="' + MAP_H + '" fill="#c2b280"/>';
+  svg += '<ellipse cx="500" cy="500" rx="200" ry="140" fill="#2a5a8a"/>';
+  svg += '<ellipse cx="500" cy="500" rx="180" ry="120" fill="#3a7ab0"/>';
+  svg += '<rect x="1600" y="300" width="220" height="180" fill="#8a5a2a"/>';
+  svg += '<polygon points="1600,300 1710,220 1820,300" fill="#a03a2a"/>';
+  svg += '<rect x="1700" y="400" width="40" height="80" fill="#4a2a1a"/>';
+  svg += '<rect x="1850" y="1000" width="300" height="200" fill="#8a5a2a"/>';
+  svg += '<polygon points="1850,1000 2000,900 2150,1000" fill="#a03a2a"/>';
+  var trees = [[200,1200],[300,1300],[150,1400],[2100,600],[2200,700],[2150,500]];
+  for (var i = 0; i < trees.length; i++){
+    svg += '<circle cx="' + trees[i][0] + '" cy="' + trees[i][1] + '" r="30" fill="#2a4a1a"/>';
+    svg += '<circle cx="' + trees[i][0] + '" cy="' + (trees[i][1] - 10) + '" r="25" fill="#3a6a2a"/>';
+  }
+  svg += '</svg>';
+  document.getElementById("map").innerHTML = svg;
+}
+
+/* ---- Мой игрок ---- */
+var meEl = null;
+function createMeElement(){
+  meEl = document.createElement("div");
+  meEl.style.cssText = "position:absolute;width:40px;height:48px;transform:translate(-50%,-50%);z-index:100;pointer-events:none;will-change:left,top";
+  meEl.innerHTML = GHOST_SVG;
+  document.getElementById("map").appendChild(meEl);
+  meEl.style.left = me.x + "px";
+  meEl.style.top = me.y + "px";
+}
+function updateMeSprite(){
+  if (!meEl) return;
+  meEl.style.left = me.x + "px";
+  meEl.style.top = me.y + "px";
+}
+
+/* ---- Клавиши ---- */
+var keys = {};
+document.addEventListener("keydown", function(e){
+  if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+  keys[e.key] = true;
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.key) >= 0) e.preventDefault();
+});
+document.addEventListener("keyup", function(e){ keys[e.key] = false; });
+
+/* ---- Движение с оптимизацией ---- */
+var lastWrite = 0;
+var lastWrittenX = me.x, lastWrittenY = me.y;
+var lastCamX = -1, lastCamY = -1;
+var WRITE_INTERVAL = 400;
+
+function tick(){
+  var vx = 0, vy = 0;
+  if (keys["ArrowLeft"] || keys["a"] || keys["A"]) vx -= 6;
+  if (keys["ArrowRight"] || keys["d"] || keys["D"]) vx += 6;
+  if (keys["ArrowUp"] || keys["w"] || keys["W"]) vy -= 6;
+  if (keys["ArrowDown"] || keys["s"] || keys["S"]) vy += 6;
+
+  if (vx !== 0 || vy !== 0){
+    me.x = Math.max(20, Math.min(MAP_W - 20, me.x + vx));
+    me.y = Math.max(20, Math.min(MAP_H - 20, me.y + vy));
+    updateMeSprite();
+
+    var now = Date.now();
+    var dx = Math.abs(me.x - lastWrittenX);
+    var dy = Math.abs(me.y - lastWrittenY);
+
+    if (now - lastWrite > WRITE_INTERVAL && (dx > 5 || dy > 5)){
+      lastWrite = now;
+      lastWrittenX = me.x;
+      lastWrittenY = me.y;
+      db.collection("town_players").doc(me.id).update({
+        x: me.x, y: me.y
+      }).catch(function(){});
+    }
+  }
+
+  var wrap = document.getElementById("mapWrap");
+  var vw = wrap.clientWidth;
+  var vh = wrap.clientHeight;
+  var camX = Math.max(0, Math.min(MAP_W - vw, me.x - vw / 2));
+  var camY = Math.max(0, Math.min(MAP_H - vh, me.y - vh / 2));
+  camX = Math.round(camX);
+  camY = Math.round(camY);
+  if (camX !== lastCamX || camY !== lastCamY){
+    lastCamX = camX;
+    lastCamY = camY;
+    document.getElementById("map").style.transform = "translate(" + (-camX) + "px," + (-camY) + "px)";
+  }
+
+  requestAnimationFrame(tick);
+}
+
+/* ---- Вход ---- */
+document.getElementById("btnPlay").onclick = function(){
+  var nick = document.getElementById("nickInput").value.trim();
+  var msg = document.getElementById("loginMsg");
+  if (!nick){ msg.textContent = "Введи ник"; return; }
+  if (nick.length < 2){ msg.textContent = "Ник минимум 2 символа"; return; }
+
+  var uid = "u_" + Math.random().toString(36).slice(2, 10) + "_" + Date.now();
+  me.id = uid;
+  me.nickname = nick;
+
+  db.collection("town_players").doc(uid).set({
+    nickname: nick,
+    icon: "ghost",
+    server: myServer,
+    x: me.x, y: me.y,
+    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("whoInfo").textContent = "👻 " + nick;
+    startGame();
+  }).catch(function(e){
+    msg.textContent = "Ошибка: " + e.message;
+  });
+};
+
+function startGame(){
+  buildMap();
+  createMeElement();
+
+  lastCamX = -1; lastCamY = -1;
+  tick();
+
+  subscribePlayers();
+  subscribeChat();
+  heartBeat();
+  cleanOldPlayers();
+  updateServerBadge();
+  setInterval(updateServerBadge, 10000);
+}
+
+function updateServerBadge(){
+  var srv = null;
+  for (var i = 0; i < SERVERS.length; i++) if (SERVERS[i].id === myServer) srv = SERVERS[i];
+  if (!srv) return;
+
+  getOnlineCount(myServer).then(function(n){
+    measurePing().then(function(ms){
+      var info = document.getElementById("whoInfo");
+      if (info){
+        info.textContent = "👻 " + me.nickname +
+          " • " + srv.flag + " " + srv.name +
+          " • 👥 " + n +
+          " • " + ms + " ms";
+      }
+    });
+  });
+}/* ---- Синхронизация игроков (только свой сервер) ---- */
+function subscribePlayers(){
+  var cutoff = new Date(Date.now() - 120000);
+
+  db.collection("town_players")
+    .where("server", "==", myServer)
+    .where("lastSeen", ">", cutoff)
+    .limit(30)
+    .onSnapshot(function(snap){
+      snap.docChanges().forEach(function(ch){
+        var id = ch.doc.id;
+        if (id === me.id) return;
+
+        if (ch.type === "removed"){
+          if (players[id]){
+            if (players[id].el && players[id].el.parentNode){
+              players[id].el.parentNode.removeChild(players[id].el);
+            }
+            delete players[id];
+          }
+          return;
+        }
+
+        var d = ch.doc.data();
+        if (!d.lastSeen) return;
+
+        if (!players[id]){
+          players[id] = { nickname: d.nickname, icon: d.icon, x: d.x, y: d.y, el: null };
+          var el = document.createElement("div");
+          el.style.cssText = "position:absolute;width:40px;height:48px;transform:translate(-50%,-50%);pointer-events:none;transition:left .15s linear,top .15s linear;will-change:left,top";
+          el.innerHTML = GHOST_SVG;
+          el.style.left = d.x + "px";
+          el.style.top = d.y + "px";
+          var label = document.createElement("div");
+          label.style.cssText = "position:absolute;left:50%;top:110%;transform:translateX(-50%);font-size:10px;white-space:nowrap;color:#fff;text-shadow:0 0 3px #000;text-align:center";
+          label.textContent = d.nickname || "?";
+          el.appendChild(label);
+          document.getElementById("map").appendChild(el);
+          players[id].el = el;
+        } else {
+          players[id].x = d.x;
+          players[id].y = d.y;
+          var newLeft = d.x + "px";
+          var newTop = d.y + "px";
+          if (players[id].el.style.left !== newLeft) players[id].el.style.left = newLeft;
+          if (players[id].el.style.top  !== newTop)  players[id].el.style.top  = newTop;
+        }
+      });
+
+      document.getElementById("onlineCount").textContent = Object.keys(players).length + 1;
+    }, function(err){
+      console.warn("players snapshot:", err);
+    });
+}
+
+/* ---- Чат ---- */
+function escapeHtml(s){
+  if (!s) return "";
+  return String(s).split("&").join("&amp;")
+    .split(String.fromCharCode(60)).join("&lt;")
+    .split(String.fromCharCode(62)).join("&gt;");
+}
+
+function subscribeChat(){
+  var chat = document.getElementById("chat");
+
+  db.collection("town_chat")
+    .where("server", "==", myServer)
+    .orderBy("createdAt", "desc")
+    .limit(15)
+    .onSnapshot(function(snap){
+      var changed = false;
+      snap.docChanges().forEach(function(ch){
+        if (ch.type === "added") changed = true;
+      });
+      if (!changed) return;
+
+      chat.innerHTML = "";
+      snap.forEach(function(doc){
+        var d = doc.data();
+        var div = document.createElement("div");
+        div.className = "msg";
+        div.innerHTML = '<b>' + escapeHtml(d.nickname) + ':</b> ' + escapeHtml(d.text);
+        chat.appendChild(div);
+      });
+    }, function(err){
+      console.warn("chat snapshot:", err);
+    });
+}
+
+var lastMsgAt = 0;
+function sendMessage(){
+  var inp = document.getElementById("msgInput");
+  var txt = inp.value.trim();
+  if (!txt) return;
+
+  var now = Date.now();
+  if (now - lastMsgAt < 1000) return;
+  lastMsgAt = now;
+
+  inp.value = "";
+  db.collection("town_chat").add({
+    nickname: me.nickname,
+    icon: "ghost",
+    uid: me.id,
+    server: myServer,
+    text: txt.slice(0, 80),
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(function(e){ console.warn("send:", e); });
+}
+document.getElementById("btnSend").onclick = sendMessage;
+document.getElementById("msgInput").addEventListener("keydown", function(e){
+  if (e.key === "Enter") sendMessage();
+});/* ---- Heartbeat ---- */
+function heartBeat(){
+  setInterval(function(){
+    if (!me.id) return;
+    db.collection("town_players").doc(me.id).update({
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function(){});
+  }, 20000);
+}
+
+/* ---- Уборка (только свой сервер) ---- */
+function cleanOldPlayers(){
+  setInterval(function(){
+    var cutoff = new Date(Date.now() - 180000);
+    db.collection("town_players")
+      .where("server", "==", myServer)
+      .where("lastSeen", "<", cutoff)
+      .limit(50)
+      .get()
+      .then(function(snap){
+        snap.forEach(function(doc){
+          if (doc.id === me.id) return;
+          doc.ref.delete().catch(function(){});
+        });
+      })
+      .catch(function(){});
+  }, 300000);
+}
+
+/* ---- Выход ---- */
+document.getElementById("btnOut").onclick = function(){
+  if (me.id){
+    db.collection("town_players").doc(me.id).delete().catch(function(){});
+  }
+  location.reload();
+};
+
+/* ---- Resize ---- */
+var resizeT = null;
+window.addEventListener("resize", function(){
+  clearTimeout(resizeT);
+  resizeT = setTimeout(function(){
+    lastCamX = -1; lastCamY = -1;
+  }, 200);
+});
+
+/* ---- Запуск списка серверов ---- */
+renderServerList();
+</script>
+</body>
+</html>
