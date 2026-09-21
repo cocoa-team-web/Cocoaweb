@@ -20,7 +20,8 @@ body{font-family:Arial,sans-serif;background:#0f0c29;color:#fff;height:100vh;ove
 #chat{position:fixed;bottom:80px;left:10px;right:10px;max-height:140px;overflow-y:auto;background:rgba(0,0,0,.6);border-radius:10px;padding:8px;font-size:12px;display:flex;flex-direction:column-reverse;pointer-events:auto}
 #chat .msg{margin-bottom:4px;word-break:break-word}
 #chat .msg b{color:#00d2ff}
-#chatInput{position:fixed;bottom:10px;left:10px;right:10px;display:flex;gap:6px}
+#chatInput{position:fixed;bottom:10px;left:10px;right:10px;display:none;gap:6px}
+#chatInput.on{display:flex}
 #chatInput input{flex:1;padding:12px;border-radius:10px;border:1px solid #00d2ff;background:#0f0c29;color:#fff;font-size:14px;outline:none}
 #chatInput button{padding:12px 18px;border-radius:10px;border:0;background:#00d2ff;color:#000;font-weight:bold;cursor:pointer}
 #playerBadge{position:fixed;top:60px;right:10px;background:rgba(0,0,0,.6);border-radius:10px;padding:8px 12px;font-size:12px;z-index:50}
@@ -40,6 +41,12 @@ body{font-family:Arial,sans-serif;background:#0f0c29;color:#fff;height:100vh;ove
 .ping-good{color:#4ade80}
 .ping-mid{color:#fbbf24}
 .ping-bad{color:#f87171}
+#modeSwitch{position:fixed;top:60px;left:10px;background:rgba(0,0,0,.6);border-radius:10px;padding:6px;display:flex;gap:4px;z-index:50}
+#modeSwitch button{background:transparent;border:1px solid #2a303c;color:#a8b0c2;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px}
+#modeSwitch button.on{background:#00d2ff;color:#000;border-color:#00d2ff;font-weight:bold}
+#joystick{position:fixed;bottom:90px;left:20px;width:140px;height:140px;border-radius:50%;background:rgba(0,210,255,.15);border:2px solid rgba(0,210,255,.5);z-index:60;display:none;touch-action:none}
+#joystick.on{display:block}
+#joyKnob{position:absolute;left:50%;top:50%;width:60px;height:60px;border-radius:50%;background:#00d2ff;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 20px rgba(0,210,255,.8)}
 </style>
 </head>
 <body>
@@ -76,9 +83,18 @@ body{font-family:Arial,sans-serif;background:#0f0c29;color:#fff;height:100vh;ove
   <button id="btnOut">Выйти</button>
 </div>
 
+<div id="modeSwitch">
+  <button id="modePc">🖥️ ПК</button>
+  <button id="modePhone">📱 Телефон</button>
+</div>
+
 <div id="mapWrap"><div id="map"></div></div>
 
 <div id="playerBadge">👥 Онлайн: <b id="onlineCount">0</b></div>
+
+<div id="joystick">
+  <div id="joyKnob"></div>
+</div>
 
 <div id="chat"></div>
 <div id="chatInput">
@@ -110,7 +126,6 @@ var me = {
 
 var players = {};
 
-/* ---- SVG призрака ---- */
 var GHOST_SVG = '<svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">' +
   '<path d="M20 100 L20 55 Q20 15 50 15 Q80 15 80 55 L80 100 L74 94 L68 100 L62 94 L56 100 L50 94 L44 100 L38 94 L32 100 L26 94 Z" fill="#9a9a9a" stroke="#000" stroke-width="2" stroke-linejoin="round"/>' +
   '<path d="M60 18 Q72 6 78 18 Q72 22 60 18 Z" fill="#6cff2a" stroke="#000" stroke-width="1.5"/>' +
@@ -118,7 +133,6 @@ var GHOST_SVG = '<svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" s
   '<line x1="53" y1="58" x2="65" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>' +
 '</svg>';
 
-/* ---- Сервера ---- */
 var SERVERS = [
   { id: "ru",  flag: "🇷🇺", name: "Москва" },
   { id: "eu",  flag: "🇪🇺", name: "Европа" },
@@ -127,7 +141,6 @@ var SERVERS = [
 ];
 var myServer = "ru";
 
-/* ---- Пинг ---- */
 function measurePing(){
   var start = Date.now();
   return db.collection("_ping").doc("p").get()
@@ -135,7 +148,6 @@ function measurePing(){
     .catch(function(){ return Date.now() - start; });
 }
 
-/* ---- Онлайн ---- */
 function getOnlineCount(serverId){
   var cutoff = new Date(Date.now() - 120000);
   return db.collection("town_players")
@@ -147,7 +159,6 @@ function getOnlineCount(serverId){
     .catch(function(){ return 0; });
 }
 
-/* ---- Список серверов ---- */
 function renderServerList(){
   var box = document.getElementById("serverList");
   var h = "";
@@ -193,7 +204,6 @@ function refreshServerInfo(){
   });
 }
 
-/* ---- Карта ---- */
 function buildMap(){
   var svg = '<svg width="' + MAP_W + '" height="' + MAP_H + '" xmlns="http://www.w3.org/2000/svg">';
   svg += '<rect width="100%" height="100%" fill="#3a5a2a"/>';
@@ -222,7 +232,6 @@ function buildMap(){
   document.getElementById("map").innerHTML = svg;
 }
 
-/* ---- Мой игрок ---- */
 var meEl = null;
 function createMeElement(){
   meEl = document.createElement("div");
@@ -238,7 +247,36 @@ function updateMeSprite(){
   meEl.style.top = me.y + "px";
 }
 
-/* ---- Клавиши ---- */
+var controlMode = "pc";
+try {
+  var savedMode = localStorage.getItem("town_mode");
+  if (savedMode) controlMode = savedMode;
+  else if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) controlMode = "phone";
+} catch(e){}
+
+function applyMode(){
+  var pcBtn = document.getElementById("modePc");
+  var phBtn = document.getElementById("modePhone");
+  var joy = document.getElementById("joystick");
+  var chatIn = document.getElementById("chatInput");
+
+  pcBtn.classList.toggle("on", controlMode === "pc");
+  phBtn.classList.toggle("on", controlMode === "phone");
+
+  if (controlMode === "phone") joy.classList.add("on");
+  else joy.classList.remove("on");
+
+  chatIn.classList.add("on");
+  try { localStorage.setItem("town_mode", controlMode); } catch(e){}
+}
+
+document.getElementById("modePc").onclick = function(){
+  controlMode = "pc"; joyVec.x = 0; joyVec.y = 0; applyMode();
+};
+document.getElementById("modePhone").onclick = function(){
+  controlMode = "phone"; applyMode();
+};
+
 var keys = {};
 document.addEventListener("keydown", function(e){
   if (document.activeElement && document.activeElement.tagName === "INPUT") return;
@@ -247,7 +285,51 @@ document.addEventListener("keydown", function(e){
 });
 document.addEventListener("keyup", function(e){ keys[e.key] = false; });
 
-/* ---- Движение с оптимизацией ---- */
+var joyVec = { x: 0, y: 0 };
+
+function initJoystick(){
+  var joy = document.getElementById("joystick");
+  var knob = document.getElementById("joyKnob");
+  var active = false;
+  var cx = 0, cy = 0;
+  var R = 50;
+
+  function start(e){
+    e.preventDefault();
+    active = true;
+    var r = joy.getBoundingClientRect();
+    cx = r.left + r.width / 2;
+    cy = r.top + r.height / 2;
+    move(e);
+  }
+  function move(e){
+    if (!active) return;
+    var p = e.touches ? e.touches[0] : e;
+    var dx = p.clientX - cx;
+    var dy = p.clientY - cy;
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d > R){ dx = dx / d * R; dy = dy / d * R; }
+    knob.style.left = "calc(50% + " + dx + "px)";
+    knob.style.top = "calc(50% + " + dy + "px)";
+    joyVec.x = dx / R;
+    joyVec.y = dy / R;
+  }
+  function end(){
+    active = false;
+    knob.style.left = "50%";
+    knob.style.top = "50%";
+    joyVec.x = 0; joyVec.y = 0;
+  }
+
+  joy.addEventListener("touchstart", start, { passive: false });
+  joy.addEventListener("touchmove", move, { passive: false });
+  joy.addEventListener("touchend", end);
+  joy.addEventListener("touchcancel", end);
+  joy.addEventListener("mousedown", start);
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", end);
+}
+
 var lastWrite = 0;
 var lastWrittenX = me.x, lastWrittenY = me.y;
 var lastCamX = -1, lastCamY = -1;
@@ -259,6 +341,11 @@ function tick(){
   if (keys["ArrowRight"] || keys["d"] || keys["D"]) vx += 6;
   if (keys["ArrowUp"] || keys["w"] || keys["W"]) vy -= 6;
   if (keys["ArrowDown"] || keys["s"] || keys["S"]) vy += 6;
+
+  if (joyVec.x !== 0 || joyVec.y !== 0){
+    vx = Math.round(joyVec.x * 6);
+    vy = Math.round(joyVec.y * 6);
+  }
 
   if (vx !== 0 || vy !== 0){
     me.x = Math.max(20, Math.min(MAP_W - 20, me.x + vx));
@@ -295,7 +382,6 @@ function tick(){
   requestAnimationFrame(tick);
 }
 
-/* ---- Вход ---- */
 document.getElementById("btnPlay").onclick = function(){
   var nick = document.getElementById("nickInput").value.trim();
   var msg = document.getElementById("loginMsg");
@@ -352,8 +438,7 @@ function updateServerBadge(){
       }
     });
   });
-}/* ---- Синхронизация игроков (только свой сервер) ---- */
-function subscribePlayers(){
+}function subscribePlayers(){
   var cutoff = new Date(Date.now() - 120000);
 
   db.collection("town_players")
@@ -407,7 +492,6 @@ function subscribePlayers(){
     });
 }
 
-/* ---- Чат ---- */
 function escapeHtml(s){
   if (!s) return "";
   return String(s).split("&").join("&amp;")
@@ -439,6 +523,7 @@ function subscribeChat(){
       });
     }, function(err){
       console.warn("chat snapshot:", err);
+      chat.innerHTML = '<div class="msg" style="color:#f87171">Чат недоступен: ' + escapeHtml(err.message) + '</div>';
     });
 }
 
@@ -465,7 +550,8 @@ function sendMessage(){
 document.getElementById("btnSend").onclick = sendMessage;
 document.getElementById("msgInput").addEventListener("keydown", function(e){
   if (e.key === "Enter") sendMessage();
-});/* ---- Heartbeat ---- */
+});
+
 function heartBeat(){
   setInterval(function(){
     if (!me.id) return;
@@ -475,7 +561,6 @@ function heartBeat(){
   }, 20000);
 }
 
-/* ---- Уборка (только свой сервер) ---- */
 function cleanOldPlayers(){
   setInterval(function(){
     var cutoff = new Date(Date.now() - 180000);
@@ -494,7 +579,6 @@ function cleanOldPlayers(){
   }, 300000);
 }
 
-/* ---- Выход ---- */
 document.getElementById("btnOut").onclick = function(){
   if (me.id){
     db.collection("town_players").doc(me.id).delete().catch(function(){});
@@ -502,7 +586,6 @@ document.getElementById("btnOut").onclick = function(){
   location.reload();
 };
 
-/* ---- Resize ---- */
 var resizeT = null;
 window.addEventListener("resize", function(){
   clearTimeout(resizeT);
@@ -511,8 +594,9 @@ window.addEventListener("resize", function(){
   }, 200);
 });
 
-/* ---- Запуск списка серверов ---- */
 renderServerList();
+applyMode();
+initJoystick();
 </script>
 </body>
 </html>
