@@ -133,6 +133,15 @@ var GHOST_SVG = '<svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" s
   '<line x1="53" y1="58" x2="65" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>' +
 '</svg>';
 
+/* ---- Хелпер: Timestamp → миллисекунды ---- */
+function tsToMs(ts){
+  if (!ts) return 0;
+  if (ts.toDate) return ts.toDate().getTime();
+  if (ts.seconds) return ts.seconds * 1000;
+  if (typeof ts === "number") return ts;
+  return 0;
+}
+
 var SERVERS = [
   { id: "ru",  flag: "🇷🇺", name: "Москва" },
   { id: "eu",  flag: "🇪🇺", name: "Европа" },
@@ -149,13 +158,19 @@ function measurePing(){
 }
 
 function getOnlineCount(serverId){
-  var cutoff = new Date(Date.now() - 120000);
   return db.collection("town_players")
     .where("server", "==", serverId)
-    .where("lastSeen", ">", cutoff)
     .limit(30)
     .get()
-    .then(function(snap){ return snap.size; })
+    .then(function(snap){
+      var n = 0;
+      snap.forEach(function(doc){
+        var d = doc.data();
+        var ms = tsToMs(d.lastSeen);
+        if (ms && Date.now() - ms < 120000) n++;
+      });
+      return n;
+    })
     .catch(function(){ return 0; });
 }
 
@@ -361,7 +376,8 @@ function tick(){
       lastWrittenX = me.x;
       lastWrittenY = me.y;
       db.collection("town_players").doc(me.id).update({
-        x: me.x, y: me.y
+        x: me.x, y: me.y,
+        lastSeen: firebase.firestore.FieldValue.serverTimestamp()
       }).catch(function(){});
     }
   }
@@ -438,19 +454,27 @@ function updateServerBadge(){
       }
     });
   });
-}function subscribePlayers(){
-  var cutoff = new Date(Date.now() - 120000);
-
+}/* ---- Игроки: БЕЗ фильтра lastSeen в запросе, фильтр в JS ---- */
+function subscribePlayers(){
   db.collection("town_players")
     .where("server", "==", myServer)
-    .where("lastSeen", ">", cutoff)
     .limit(30)
     .onSnapshot(function(snap){
-      snap.docChanges().forEach(function(ch){
-        var id = ch.doc.id;
+      var seen = {};
+
+      snap.forEach(function(doc){
+        var id = doc.id;
         if (id === me.id) return;
 
-        if (ch.type === "removed"){
+        var d = doc.data();
+        seen[id] = true;
+
+        // проверка свежести lastSeen
+        var ms = tsToMs(d.lastSeen);
+        var fresh = ms && (Date.now() - ms < 120000);
+
+        if (!fresh){
+          // игрок устарел — убираем если он есть
           if (players[id]){
             if (players[id].el && players[id].el.parentNode){
               players[id].el.parentNode.removeChild(players[id].el);
@@ -459,9 +483,6 @@ function updateServerBadge(){
           }
           return;
         }
-
-        var d = ch.doc.data();
-        if (!d.lastSeen) return;
 
         if (!players[id]){
           players[id] = { nickname: d.nickname, icon: d.icon, x: d.x, y: d.y, el: null };
@@ -486,12 +507,23 @@ function updateServerBadge(){
         }
       });
 
-      document.getElementById("onlineCount").textContent = Object.keys(players).length + 1;
+      // удалить тех, кто исчез из снапшота
+      for (var id in players){
+        if (!seen[id]){
+          if (players[id].el && players[id].el.parentNode){
+            players[id].el.parentNode.removeChild(players[id].el);
+          }
+          delete players[id];
+        }
+      }
+
+      document.getElementById("onlineCount").textContent = Object.keys(players).length;
     }, function(err){
       console.warn("players snapshot:", err);
     });
 }
 
+/* ---- Чат ---- */
 function escapeHtml(s){
   if (!s) return "";
   return String(s).split("&").join("&amp;")
@@ -552,6 +584,7 @@ document.getElementById("msgInput").addEventListener("keydown", function(e){
   if (e.key === "Enter") sendMessage();
 });
 
+/* ---- Heartbeat ---- */
 function heartBeat(){
   setInterval(function(){
     if (!me.id) return;
@@ -561,24 +594,27 @@ function heartBeat(){
   }, 20000);
 }
 
+/* ---- Уборка: без фильтра lastSeen в запросе ---- */
 function cleanOldPlayers(){
   setInterval(function(){
-    var cutoff = new Date(Date.now() - 180000);
     db.collection("town_players")
       .where("server", "==", myServer)
-      .where("lastSeen", "<", cutoff)
       .limit(50)
       .get()
       .then(function(snap){
         snap.forEach(function(doc){
           if (doc.id === me.id) return;
-          doc.ref.delete().catch(function(){});
+          var ms = tsToMs(doc.data().lastSeen);
+          if (!ms || Date.now() - ms > 180000){
+            doc.ref.delete().catch(function(){});
+          }
         });
       })
       .catch(function(){});
   }, 300000);
 }
 
+/* ---- Выход ---- */
 document.getElementById("btnOut").onclick = function(){
   if (me.id){
     db.collection("town_players").doc(me.id).delete().catch(function(){});
